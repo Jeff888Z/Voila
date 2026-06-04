@@ -1,0 +1,87 @@
+# VOILÀ — Liste des paquets à installer dans l'image live
+# Référencé par live-build via Packages: dans config/bootstrap
+
+# === Système de base ===
+live-boot
+live-config
+live-config-systemd
+systemd
+systemd-sysv
+sudo
+less
+nano
+vim
+htop
+tree
+git
+curl
+wget
+net-tools
+wireless-tools
+wpasupplicant
+network-manager
+network-manager-gnome
+bluetooth
+bluez
+
+# === Sécurité / anonymat ===
+tor
+tor-geoipdb
+wireguard
+wireguard-tools
+apparmor
+apparmor-utils
+apparmor-profiles
+apparmor-profiles-extra
+haveged  # générateur d'entropie
+rng-tools
+
+# === Navigateur ===
+firefox-esr
+torbrowser-launcher
+
+# === Communication ===
+element-desktop
+signal-desktop
+# briar-desktop n'est pas dans Debian, on l'ajoute via flatpak ou .deb tiers
+briar
+
+# === Email ===
+thunderbird
+
+# === Productivité ===
+libreoffice-core
+libreoffice-writer
+libreoffice-calc
+libreoffice-impress
+libreoffice-common
+gimp  # édition d'images
+
+# === LLM local ===
+ollama
+
+# === Transfert fichiers P2P ===
+syncthing
+
+# === Audio / Vidéo ===
+pulseaudio
+pavucontrol
+ffmpeg
+vlc
+
+# === Polices (FR + Unicode) ===
+fonts-liberation
+fonts-dejavu
+fonts-noto
+fonts-noto-cjk
+fonts-droid-fallback
+
+# === Thèmes / Desktop ===
+xfce4
+xfce4-goodies
+xfce4-terminal
+lightdm
+lightdm-gtk-greeter
+arc-theme
+papirus-icon-theme
+adwaita-icon-theme

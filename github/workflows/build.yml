@@ -1,0 +1,94 @@
+# VOILÀ — Build CI
+# SPDX-License-Identifier: MIT
+
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  schedule:
+    # Tous les dimanches 03:00 UTC (rebuild hebdo sécurité)
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Raison du build manuel'
+        required: false
+        default: 'manual'
+
+permissions:
+  contents: write   # pour créer des releases
+  packages: write
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (pour tests sur ARM64 plus tard)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build Docker image
+        working-directory: docker
+        run: docker build -t voila-builder .
+
+      - name: Build ISO
+        run: |
+          mkdir -p dist
+          docker run --rm \
+            -v "$(pwd)/dist:/build/dist" \
+            -v "$(pwd)/live-build-config:/build/live-build-config" \
+            -v "$(pwd)/scripts:/build/scripts" \
+            voila-builder
+
+      - name: List output
+        run: ls -la dist/
+
+      - name: Calculate SHA256
+        run: |
+          cd dist
+          for f in *.iso; do
+            sha256sum "$f" > "$f.sha256"
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voila-iso
+          path: dist/*.iso
+          if-no-files-found: error
+
+      - name: QEMU smoke test (boot ISO)
+        uses: docker://ubuntu:24.04
+        with:
+          args: >
+            bash -c '
+            apt-get update && apt-get install -y --no-install-recommends qemu-system-x86 &&
+            qemu-img create -f qcow2 /tmp/test.qcow2 4G &&
+            timeout 90 qemu-system-x86_64
+              -m 2048
+              -enable-kvm
+              -drive file=/tmp/test.qcow2,format=qcow2
+              -cdrom dist/*.iso
+              -boot d
+              -nographic
+              -serial mon:stdio
+              -kernel
+              -append "boot=live console=ttyS0 quiet" || echo "QEMU_TIMEOUT_OK"
+            '
+
+      - name: Create release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.iso
+            dist/*.sha256

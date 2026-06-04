@@ -1,0 +1,13 @@
+dist/
+*.iso
+*.iso.sha256
+*.log
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+.idea/
+config-bullseye/
+config-buster/
+config-stretch/
+*.bak

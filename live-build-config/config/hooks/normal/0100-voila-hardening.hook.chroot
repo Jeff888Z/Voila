@@ -1,0 +1,184 @@
+#!/bin/bash
+# VOILÀ — Hardening post-install (Tor transparent proxy, amnésie)
+# Appelé par live-build pendant le chroot
+# SPDX-License-Identifier: MIT
+set -euo pipefail
+
+readonly LOG="/var/log/voila-build.log"
+log() { echo "[VOILÀ hardening] $*" | tee -a "$LOG"; }
+
+# ------------------------------------------------------------------
+# 1. TOR TRANSPARENT PROXY
+# ------------------------------------------------------------------
+log "Configuration du Tor transparent proxy..."
+
+# /etc/tor/torrc : mode transparent + DNS resolver
+cat > /etc/tor/torrc <<'EOF'
+# VOILÀ — Configuration Tor
+User debian-tor
+DataDirectory /var/lib/tor
+
+# Transparent proxy
+VirtualAddrNetworkIPv4 10.192.0.0/10
+AutomapHostsOnResolve 1
+TransPort 127.0.0.1:9040 IsolateClientAddr IsolateClientProtocol IsolateDestAddr IsolateDestPort
+DNSPort 127.0.0.1:9053
+
+# Sécurité
+AvoidDiskWrites 1
+DisableNetwork 0
+EOF
+
+# ------------------------------------------------------------------
+# 2. IPTABLES : FORCE TOUT LE TRAFIC VIA TOR
+# ------------------------------------------------------------------
+log "Application des règles iptables..."
+
+# Script iptables appelé au boot
+mkdir -p /etc/NetworkManager/dispatcher.d
+cat > /etc/NetworkManager/dispatcher.d/99-voila-tor <<'EOF'
+#!/bin/bash
+# Force tout le trafic via Tor transparent proxy
+# NetworkManager dispatcher (appelé à chaque event réseau)
+
+if [ "$2" != "up" ]; then exit 0; fi
+
+# IPv4
+iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 9053
+iptables -t nat -A OUTPUT -p tcp --syn -j REDIRECT --to-ports 9040
+
+# Bloque tout ce qui n'est pas Tor
+iptables -A OUTPUT -m owner ! --uid-owner debian-tor -j REJECT --reject-with icmp-net-unreachable
+
+# IPv6 : on désactive complètement (Tor n'aime pas IPv6 leak)
+ip6tables -A OUTPUT -j REJECT --reject-with icmp6-adm-prohibited
+EOF
+chmod +x /etc/NetworkManager/dispatcher.d/99-voila-tor
+
+# ------------------------------------------------------------------
+# 3. DNS : UNIQUEMENT VIA TOR
+# ------------------------------------------------------------------
+log "Configuration DNS via Tor..."
+
+# /etc/resolv.conf : pointer sur Tor DNSPort
+cat > /etc/resolv.conf <<'EOF'
+# VOILÀ — DNS résolu uniquement via Tor
+nameserver 127.0.0.1#9053
+EOF
+chattr +i /etc/resolv.conf 2>/dev/null || true  # immutable
+
+# ------------------------------------------------------------------
+# 4. SWAP : DÉSACTIVÉ
+# ------------------------------------------------------------------
+log "Désactivation du swap..."
+systemctl mask swap.target 2>/dev/null || true
+# Commenter toute entrée swap dans fstab
+sed -i '/[[:space:]]swap[[:space:]]/s/^/# /' /etc/fstab
+
+# ------------------------------------------------------------------
+# 5. MAC RANDOMISATION (WIFI + ETHERNET)
+# ------------------------------------------------------------------
+log "Configuration MAC randomisation..."
+
+mkdir -p /etc/NetworkManager/conf.d
+cat > /etc/NetworkManager/conf.d/99-voila-mac.conf <<'EOF'
+# VOILÀ — MAC randomisation à chaque connexion
+[device]
+wifi.scan-rand-mac-address=yes
+
+[connection]
+wifi.cloned-mac-address=random
+ethernet.cloned-mac-address=random
+EOF
+
+# ------------------------------------------------------------------
+# 6. AMNÉSIE : /home /tmp /var/log EN TMPFS
+# ------------------------------------------------------------------
+log "Configuration tmpfs amnésique..."
+
+# Backup du fstab original
+cp /etc/fstab /etc/fstab.voila-backup
+
+# Ajout tmpfs
+cat >> /etc/fstab <<'EOF'
+# VOILÀ — tmpfs amnésique
+tmpfs /home      tmpfs nosuid,nodev,size=2G,mode=755 0 0
+tmpfs /tmp       tmpfs nosuid,nodev,size=1G          0 0
+tmpfs /var/log   tmpfs nosuid,nodev,size=256M        0 0
+tmpfs /var/tmp   tmpfs nosuid,nodev,size=256M        0 0
+EOF
+
+# ------------------------------------------------------------------
+# 7. APPARMOR : PROFILS STRICTS
+# ------------------------------------------------------------------
+log "Activation AppArmor..."
+apt-get install -y apparmor apparmor-utils apparmor-profiles apparmor-profiles-extra 2>/dev/null || true
+# Active tous les profils en mode enforce
+aa-enforce /etc/apparmor.d/* 2>/dev/null || true
+
+# ------------------------------------------------------------------
+# 8. KERNEL : PARAMÈTRES SÉCURISÉS
+# ------------------------------------------------------------------
+log "Configuration kernel security..."
+
+cat > /etc/sysctl.d/99-voila.conf <<'EOF'
+# VOILÀ — Kernel hardening
+# Pas d'IPv6
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+
+# Pas de source routing
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+
+# Pas d'ICMP redirect
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.secure_redirects = 0
+net.ipv4.conf.default.secure_redirects = 0
+
+# Pas de IP forwarding (pas de routeur)
+net.ipv4.ip_forward = 0
+
+# Kernel randomize memory
+kernel.randomize_va_space = 2
+
+# Désactiver kexec
+kernel.kexec_load_disabled = 1
+
+# Restreindre dmesg
+kernel.dmesg_restrict = 1
+
+# Restreintre ptrace
+kernel.yama.ptrace_scope = 3
+EOF
+
+# ------------------------------------------------------------------
+# 9. SCRIPT PANIC (extinction d'urgence)
+# ------------------------------------------------------------------
+log "Installation raccourci panic (Ctrl+Alt+P)..."
+
+cat > /opt/voila/panic.sh <<'EOF'
+#!/bin/bash
+# VOILÀ — Panic mode : extinction immédiate sans sync
+# Aucun log, aucun délai. La RAM se vide.
+sync &
+sleep 0.1
+echo 1 > /proc/sys/kernel/sysrq
+echo o > /proc/sysrq-trigger
+EOF
+chmod +x /opt/voila/panic.sh
+
+# ------------------------------------------------------------------
+# 10. UTILISATEUR voila (sans sudo par défaut)
+# ------------------------------------------------------------------
+log "Création utilisateur voila..."
+
+if ! id voila &>/dev/null; then
+    useradd -m -s /bin/bash -G audio,video,netdev,bluetooth voila
+    echo "voila:voila" | chpasswd
+    # Force changement mot de passe au premier login
+    passwd -e voila
+fi
+
+log "Hardening terminé."
