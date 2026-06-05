@@ -65,7 +65,10 @@ cat > /etc/resolv.conf <<'EOF'
 # VOILÀ — DNS résolu uniquement via Tor
 nameserver 127.0.0.1#9053
 EOF
-chattr +i /etc/resolv.conf 2>/dev/null || true  # immutable
+# Note: on NE FAIT PAS chattr +i ici. Ce hook s'exécute pendant le build
+# (chroot), et live-build doit pouvoir restaurer resolv.conf.orig après.
+# L'immutabilité sera appliquée au premier boot par un service systemd dédié
+# (à venir dans un commit ultérieur).
 
 # ------------------------------------------------------------------
 # 4. SWAP : DÉSACTIVÉ
