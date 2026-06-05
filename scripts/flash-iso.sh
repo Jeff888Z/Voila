@@ -22,8 +22,8 @@ set -euo pipefail
 
 readonly ISO_PATH="${1:?Usage: $0 <path-to-iso>}"
 readonly TARGET_LABEL="NOMADE_DEEP"
-readonly ISO_MIN_SIZE_MB=400  # 700 Mo attendu, on vérifie au moins 400 Mo
-readonly ISO_MAX_SIZE_MB=1500 # ISO + 100% de marge
+readonly ISO_MIN_SIZE_MB=400  # 700 Mo attendu pour un Debian Live minimal
+readonly ISO_MAX_SIZE_MB=2500 # Live complet avec cache apt embarqué peut atteindre 2 Go
 
 # === COULEURS (sortie terminal) ===
 readonly RED=$'\033[0;31m'
