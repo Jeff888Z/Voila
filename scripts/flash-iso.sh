@@ -87,26 +87,36 @@ fi
 hr
 info "Recherche de la clé '$TARGET_LABEL'..."
 
-# lsblk -o NAME,LABEL,SIZE,MODEL,TRAN (TRAN = type de transport : usb, nvme, sata...)
+# lsblk -n -o NAME,LABEL,SIZE,MODEL,TRAN
+# Note: NAME n'a PAS le préfixe /dev/ par défaut, on l'ajoute
 TARGET_DEV=""
 while IFS= read -r line; do
-    # Parser chaque ligne (skip header)
+    # Parser chaque ligne (skip header éventuel)
     name=$(echo "$line" | awk '{print $1}')
     label=$(echo "$line" | awk '{print $2}')
     size=$(echo "$line" | awk '{print $3}')
     model=$(echo "$line" | awk '{print $4}')
     tran=$(echo "$line" | awk '{print $5}')
-    
+
+    # Filtrer uniquement les périphériques de type block (sd*, nvme*, mmc*)
+    # Note: lsblk affiche les enfants avec ├─ ou └─ en préfixe
+    clean_name=$(echo "$name" | sed -E 's/^[├└─]+//')
+    case "$clean_name" in
+        /dev/sd*|/dev/nvme*|/dev/mmc*|sd*|nvme*|mmc*) :;;
+        *) continue ;;
+    esac
+
     if [ "$label" = "$TARGET_LABEL" ]; then
         # Le device parent (sans le numéro de partition)
-        # /dev/sdc1 → /dev/sdc
-        # /dev/nvme0n1p1 → /dev/nvme0n1
-        parent=$(echo "$name" | sed -E 's|/dev/(sd[a-z]+)[0-9]+|/dev/\1|; s|/dev/(nvme[0-9]+n[0-9]+)p[0-9]+|/dev/\1|')
-        echo "  Trouvé : $name ($label, $size, $model, transport=$tran) → parent=$parent"
+        # sdc1 → sdc, /dev/sdc1 → /dev/sdc
+        # nvme0n1p1 → nvme0n1, /dev/nvme0n1p1 → /dev/nvme0n1
+        full_name="/dev/$clean_name"
+        parent=$(echo "$full_name" | sed -E 's|/dev/(sd[a-z]+)[0-9]+|/dev/\1|; s|/dev/(nvme[0-9]+n[0-9]+)p[0-9]+|/dev/\1|')
+        echo "  Trouvé : $full_name ($label, $size, $model, transport=$tran) → parent=$parent"
         TARGET_DEV="$parent"
         break
     fi
-done < <(lsblk -n -o NAME,LABEL,SIZE,MODEL,TRAN | grep -E "/dev/(sd|nvme|mmc)")
+done < <(lsblk -n -o NAME,LABEL,SIZE,MODEL,TRAN 2>/dev/null)
 
 if [ -z "$TARGET_DEV" ]; then
     die "Aucune clé avec le label '$TARGET_LABEL' trouvée.
