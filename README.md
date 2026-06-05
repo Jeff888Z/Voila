@@ -30,7 +30,7 @@
 
 ## 🚀 Démarrage rapide (utilisateur)
 
-1. Téléchargez la dernière release : [github.com/JFR-Solutions/voila/releases](https://github.com/JFR-Solutions/voila/releases)
+1. Téléchargez la dernière release : [github.com/Jeff888Z/Voila/releases](https://github.com/Jeff888Z/Voila/releases)
 2. Flashez l'ISO sur une clé USB (≥ 8 Go) ou un SSD M.2 externe (≥ 128 Go recommandé)
 3. Bootez dessus (F12 / Option / Echap au démarrage de la machine)
 4. Choisissez le mode "Anonyme" ou "Normal" (VPN)
@@ -38,6 +38,10 @@
 6. **Éteignez et débranchez** : tout disparaît, aucune trace.
 
 **Documentation complète** : [docs/user-guide/](docs/user-guide/)
+
+> **Note** : le repo GitHub du projet est `Jeff888Z/Voila` (compte de
+> Jean-François). L'organisation `JFR-Solutions` est utilisée pour
+> l'hébergement de la page web, pas du code source.
 
 ---
 

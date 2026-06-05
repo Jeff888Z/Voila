@@ -1,7 +1,7 @@
 # VOILÀ — Guide utilisateur (FR)
 
 > **VOILÀ** v0.1.0-alpha — guide d'utilisation
-> Pour la dernière version : [github.com/JFR-Solutions/voila](https://github.com/JFR-Solutions/voila)
+> Pour la dernière version : [github.com/Jeff888Z/Voila](https://github.com/Jeff888Z/Voila)
 
 ---
 
@@ -35,7 +35,7 @@
 
 ### Étape 1 : Télécharger l'ISO
 
-Rendez-vous sur [github.com/JFR-Solutions/voila/releases](https://github.com/JFR-Solutions/voila/releases) et téléchargez la dernière version stable :
+Rendez-vous sur [github.com/Jeff888Z/Voila/releases](https://github.com/Jeff888Z/Voila/releases) et téléchargez la dernière version stable :
 - `voila-X.Y.Z-amd64.iso` (l'image)
 - `voila-X.Y.Z-amd64.iso.sha256` (la somme de contrôle)
 
@@ -208,7 +208,7 @@ C'est l'amnésie : redémarrez, le mot de passe par défaut est `voila` / `voila
 
 ## 📞 Support
 
-- **Bugs** : [github.com/JFR-Solutions/voila/issues](https://github.com/JFR-Solutions/voila/issues)
+- **Bugs** : [github.com/Jeff888Z/Voila/issues](https://github.com/Jeff888Z/Voila/issues)
 - **Sécurité** : security@jfrsolution.fr (chiffré GPG recommandé)
 - **Commercial** : contact@jfrsolution.fr
 

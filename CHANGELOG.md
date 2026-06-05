@@ -19,5 +19,5 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - README et LICENSE (MIT)
 - Structure de répertoires
 
-[Unreleased]: https://github.com/JFR-Solutions/voila/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/JFR-Solutions/voila/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Jeff888Z/Voila/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Jeff888Z/Voila/releases/tag/v0.1.0

@@ -230,17 +230,17 @@ jobs:
 | Étape | Statut |
 |---|---|
 | Spec complète (ce document) | ✅ |
-| Repo GitHub initialisé | ⏳ (en attente token Jeff) |
-| Container Docker de build | ⏳ |
-| Script hardening (Tor, MAC, tmpfs) | ⏳ |
-| Configuration live-build | ⏳ |
+| Repo GitHub initialisé | ✅ ([Jeff888Z/Voila](https://github.com/Jeff888Z/Voila)) |
+| Container Docker de build | ✅ (Dockerfile prêt, pas encore testé en CI) |
+| Script hardening (Tor, MAC, tmpfs) | ✅ (hook 0100 unique, 6 ko, à tester) |
+| Configuration live-build | ✅ (package-lists + hooks prêts) |
+| GitHub Actions pour rebuilds auto | ✅ (workflow YAML prêt, scope `workflow` du PAT requis pour push) |
+| Documentation utilisateur FR | ✅ (docs/user-guide/GUIDE.md, ~7 ko) |
 | Premier ISO de test | ⏳ |
 | Test sur MacBook 2011 (machine Jeff) | ⏳ |
-| GitHub Actions pour rebuilds auto | ⏳ |
-| Documentation utilisateur FR | ⏳ |
 | Site jfrsolution.fr/voila | ⏳ |
-| Release v0.1.0 "alpha" | ⏳ |
-| Support presse préinstallé en vente | ⏳ |
+| Release v0.1.0 "alpha" | ⏳ (bloquée par premier ISO) |
+| Support préinstallé en vente | ⏳ |
 | Release v1.0 "stable" | 🎯 cible 2026-Q3 |
 
 ---
