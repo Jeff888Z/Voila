@@ -42,7 +42,9 @@ jobs:
       - name: Build ISO
         run: |
           mkdir -p dist
-          docker run --rm \
+          # --privileged requis pour que live-build puisse faire des mounts
+          # (sinon : "mount: permission denied" sur chroot/dev/pts)
+          docker run --rm --privileged \
             -v "$(pwd)/dist:/build/dist" \
             -v "$(pwd)/live-build-config:/build/live-build-config" \
             -v "$(pwd)/scripts:/build/scripts" \
