@@ -46,9 +46,14 @@ firefox-esr
 torbrowser-launcher
 
 # === Communication ===
-element-desktop
-signal-desktop
-briar
+# element-desktop: paquet tiers, nécessite le repo Matrix (packages.element.io)
+# signal-desktop: paquet tiers, nécessite le repo Signal (updates.signal.org)
+# briar: pas dans Debian du tout, à installer via flatpak ou .deb officiel
+# Ces 3 paquets sont COMMENTÉS temporairement pour débloquer la CI v0.1.0-alpha.
+# Ils seront réactivés une fois qu'on aura configuré les dépôts tiers.
+# element-desktop
+# signal-desktop
+# briar
 
 # === Email ===
 thunderbird
@@ -62,7 +67,8 @@ libreoffice-common
 gimp
 
 # === LLM local ===
-ollama
+# ollama: pas dans Debian main, à installer via le script officiel ollama.ai/install.sh
+# ollama
 
 # === Transfert fichiers P2P ===
 syncthing
