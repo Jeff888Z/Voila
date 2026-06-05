@@ -78,7 +78,7 @@ jobs:
             bash -c '
               set -e
               apt-get update -qq
-              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends qemu-system-x86
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
               qemu-img create -f qcow2 /tmp/test.qcow2 4G
               echo "=== Booting ISO in QEMU (90s timeout) ==="
               timeout 90 qemu-system-x86_64 \
