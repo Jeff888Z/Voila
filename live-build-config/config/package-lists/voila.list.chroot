@@ -1,5 +1,11 @@
 # VOILÀ — Liste des paquets à installer dans l'image live
-# Référencé par live-build via Packages: dans config/bootstrap
+# Référencé par live-build via config/bootstrap
+#
+# IMPORTANT : live-build utilise xargs pour lire ces fichiers.
+# Les commentaires inline avec # ne sont PAS supportés (contrairement à apt).
+# Tout ce qui suit le nom du paquet sur une ligne est traité comme un paquet !
+# Pour commenter, mettre le # en DÉBUT de ligne uniquement.
+# Éviter aussi les apostrophes (') qui pètent le xargs.
 
 # === Système de base ===
 live-boot
@@ -32,8 +38,7 @@ wireguard-tools
 apparmor
 apparmor-utils
 apparmor-profiles
-apparmor-profiles-extra
-haveged  # générateur d'entropie
+haveged
 rng-tools
 
 # === Navigateur ===
@@ -43,7 +48,6 @@ torbrowser-launcher
 # === Communication ===
 element-desktop
 signal-desktop
-# briar-desktop n'est pas dans Debian, on l'ajoute via flatpak ou .deb tiers
 briar
 
 # === Email ===
@@ -55,7 +59,7 @@ libreoffice-writer
 libreoffice-calc
 libreoffice-impress
 libreoffice-common
-gimp  # édition d'images
+gimp
 
 # === LLM local ===
 ollama
