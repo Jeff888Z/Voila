@@ -5,10 +5,10 @@ name: build
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
     tags: ['v*']
   pull_request:
-    branches: [main]
+    branches: [master, main]
   schedule:
     # Tous les dimanches 03:00 UTC (rebuild hebdo sécurité)
     - cron: '0 3 * * 0'
