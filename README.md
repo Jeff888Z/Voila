@@ -38,6 +38,8 @@
 6. **Éteignez et débranchez** : tout disparaît, aucune trace.
 
 **Documentation complète** : [docs/user-guide/](docs/user-guide/)
+- [Guide utilisateur](docs/user-guide/GUIDE.md) — utiliser VOILÀ au quotidien
+- [Guide de flash](docs/user-guide/FLASH.md) — comment flasher l'ISO sur clé USB et booter
 
 > **Note** : le repo GitHub du projet est `Jeff888Z/Voila` (compte de
 > Jean-François). L'organisation `JFR-Solutions` est utilisée pour
