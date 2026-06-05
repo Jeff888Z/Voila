@@ -38,6 +38,8 @@ wireguard-tools
 apparmor
 apparmor-utils
 apparmor-profiles
+# apparmor-profiles-extra: n'existe PAS en bookworm (supprimé)
+# apparmor-profiles-extra
 haveged
 rng-tools
 

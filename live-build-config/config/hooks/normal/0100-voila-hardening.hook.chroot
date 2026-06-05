@@ -157,7 +157,7 @@ EOF
 # 9. SCRIPT PANIC (extinction d'urgence)
 # ------------------------------------------------------------------
 log "Installation raccourci panic (Ctrl+Alt+P)..."
-
+mkdir -p /opt/voila
 cat > /opt/voila/panic.sh <<'EOF'
 #!/bin/bash
 # VOILÀ — Panic mode : extinction immédiate sans sync
