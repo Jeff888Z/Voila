@@ -27,6 +27,7 @@ RUN apt-get update && \
         gnupg \
         git \
         sudo \
+        xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Workspace
