@@ -68,22 +68,26 @@ jobs:
           if-no-files-found: error
 
       - name: QEMU smoke test (boot ISO)
-        uses: docker://ubuntu:24.04
-        with:
-          args: >
+        # On utilise un script inline via `run:` plutôt qu'un `args:` dans
+        # docker://, parce que les apostrophes des chaînes YAML (boot=live)
+        # causaient un 'unexpected EOF' dans le bash embarqué.
+        run: |
+          docker run --rm --privileged \
+            -v "$(pwd)/dist:/dist" \
+            ubuntu:24.04 \
             bash -c '
-            apt-get update && apt-get install -y --no-install-recommends qemu-system-x86 &&
-            qemu-img create -f qcow2 /tmp/test.qcow2 4G &&
-            timeout 90 qemu-system-x86_64
-              -m 2048
-              -enable-kvm
-              -drive file=/tmp/test.qcow2,format=qcow2
-              -cdrom dist/*.iso
-              -boot d
-              -nographic
-              -serial mon:stdio
-              -kernel
-              -append "boot=live console=ttyS0 quiet" || echo "QEMU_TIMEOUT_OK"
+              set -e
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends qemu-system-x86
+              qemu-img create -f qcow2 /tmp/test.qcow2 4G
+              echo "=== Booting ISO in QEMU (90s timeout) ==="
+              timeout 90 qemu-system-x86_64 \
+                -m 2048 \
+                -drive file=/tmp/test.qcow2,format=qcow2 \
+                -cdrom /dist/*.iso \
+                -boot d \
+                -nographic \
+                -serial mon:stdio || echo "QEMU_TIMEOUT_OK"
             '
 
       - name: Create release (on tag)

@@ -10,13 +10,15 @@ mkdir -p "$DIST_DIR"
 
 echo "=== VOILÀ build v$VERSION ==="
 
-# 1. Préparer le chroot live-build
-cp -r /build/live-build-config/config /tmp/config-build
+# 1. Préparer le répertoire de travail live-build
+mkdir -p /tmp/config-build
 cd /tmp/config-build
 
-# 2. Lancer lb config + build
-# Note : lb config génère la config par défaut, on l'écrase avec la nôtre
-echo "[1/3] lb config..."
+# 2. Lancer lb config dans un dossier SÉPARÉ pour ne pas écraser nos fichiers custom
+# On utilise --config pour pointer sur un dossier de config "neutre", puis on copie
+# nos personnalisations (hooks, package-lists) APRÈS lb config, pour qu'elles soient
+# prises en compte par lb build sans être effacées.
+echo "[1/4] lb config (génère config/ par défaut)..."
 lb config \
     --distribution bookworm \
     --archive-areas "main contrib non-free non-free-firmware" \
@@ -29,13 +31,20 @@ lb config \
     --binary-images iso-hybrid \
     --compression xz
 
-echo "[2/3] lb build (ça prend 20-40 min)..."
+# 3. Injecter nos personnalisations (hooks, package-lists) dans le config/ généré
+echo "[2/4] Injection des personnalisations VOILÀ..."
+# Copier les hooks normal (live-build a déjà créé config/hooks/normal/ avec ses propres hooks)
+cp -rv /build/live-build-config/config/hooks/normal/* config/hooks/normal/
+# Copier les listes de paquets (pareil, config/package-lists/ existe déjà)
+cp -rv /build/live-build-config/config/package-lists/* config/package-lists/
+
+echo "[3/4] lb build (ça prend 20-40 min)..."
 lb build 2>&1 | tee /tmp/lb-build.log
 
-# 3. Récupérer l'ISO
-ISO=$(ls -t /tmp/config-build/live-image-*.iso 2>/dev/null | head -1)
+# 4. Récupérer l'ISO
+ISO=$(ls -t live-image-*.iso 2>/dev/null | head -1)
 if [ -z "$ISO" ]; then
-    ISO=$(ls -t /tmp/lb-live-*.iso 2>/dev/null | head -1)
+    ISO=$(ls -t lb-live-*.iso 2>/dev/null | head -1)
 fi
 if [ -z "$ISO" ]; then
     echo "ERREUR : aucun ISO produit" >&2
