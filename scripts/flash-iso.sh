@@ -107,14 +107,17 @@ while IFS= read -r line; do
     esac
 
     if [ "$label" = "$TARGET_LABEL" ]; then
-        # Le device parent (sans le numéro de partition)
-        # sdc1 → sdc, /dev/sdc1 → /dev/sdc
-        # nvme0n1p1 → nvme0n1, /dev/nvme0n1p1 → /dev/nvme0n1
-        full_name="/dev/$clean_name"
-        parent=$(echo "$full_name" | sed -E 's|/dev/(sd[a-z]+)[0-9]+|/dev/\1|; s|/dev/(nvme[0-9]+n[0-9]+)p[0-9]+|/dev/\1|')
-        echo "  Trouvé : $full_name ($label, $size, $model, transport=$tran) → parent=$parent"
-        TARGET_DEV="$parent"
-        break
+    # Le device parent (sans le numéro de partition)
+    # sdc1 → sdc, /dev/sdc1 → /dev/sdc
+    # nvme0n1p1 → nvme0n1, /dev/nvme0n1p1 → /dev/nvme0n1
+    full_name="/dev/$clean_name"
+    parent=$(echo "$full_name" | sed -E 's|/dev/(sd[a-z]+)[0-9]+|/dev/\1|; s|/dev/(nvme[0-9]+n[0-9]+)p[0-9]+|/dev/\1|')
+    # Récupérer le transport du PARENT (pas de l'enfant qui est souvent vide)
+    found_tran=$(lsblk -n -d -o TRAN "$parent" 2>/dev/null | head -1 | tr -d ' ')
+    echo "  Trouvé : $full_name ($label, $size, $model, transport=$found_tran) → parent=$parent"
+    TARGET_DEV="$parent"
+    TARGET_TRAN="$found_tran"
+    break
     fi
 done < <(lsblk -n -o NAME,LABEL,SIZE,MODEL,TRAN 2>/dev/null)
 
@@ -127,7 +130,12 @@ if [ -z "$TARGET_DEV" ]; then
   4. Relance ce script"
 fi
 
-# Récupérer les infos complètes du device parent
+# Récupérer les infos complètes du device parent (le tran du parent est correct,
+# celui de l'enfant est souvent vide dans la sortie lsblk)
+TRANSPORT=$(lsblk -n -o TRAN "$TARGET_DEV" 2>/dev/null | head -1 | tr -d ' ')
+if [ -z "$TRANSPORT" ]; then
+    TRANSPORT=$(lsblk -n -d -o TRAN "$TARGET_DEV" 2>/dev/null | head -1 | tr -d ' ')
+fi
 lsblk "$TARGET_DEV" -o NAME,SIZE,MODEL,TRAN,ROTA | sed 's/^/  /'
 
 # === 4. SÉCURITÉS ANTI-DISQUE-SYSTÈME ===
@@ -141,12 +149,12 @@ case "$TARGET_DEV" in
 esac
 
 # Vérifier que la cible est bien sur USB (pas NVMe, pas SATA interne)
-TRANSPORT=$(lsblk -n -o TRAN "$TARGET_DEV" | tail -1)
+TRANSPORT="${TARGET_TRAN:-}"
 case "$TRANSPORT" in
     usb) ok "Device sur bus USB : OK";;
     mmc) ok "Device sur bus MMC (carte SD) : OK";;
-    *)  die "Device sur $TRANSPORT (ni USB, ni MMC). Pour éviter tout risque, on refuse.
-Si tu sais ce que tu fais, force manuellement avec : dd if=$ISO_PATH of=$TARGET_DEV bs=4M status=progress conv=fsync";;
+    *)  die "Device sur '$TRANSPORT' (ni USB, ni MMC). Pour éviter tout risque, on refuse.
+Si tu sais ce que tu fais, force manuellement avec : sudo dd if=$ISO_PATH of=$TARGET_DEV bs=4M status=progress conv=fsync";;
 esac
 
 # === 5. DÉMONTAGE DES PARTITIONS MONTÉES ===
