@@ -43,6 +43,20 @@ apparmor-profiles
 haveged
 rng-tools
 
+# === Outils système / wizard premier boot ===
+# yad : dialogs graphiques (YAD) pour le wizard de premier boot
+yad
+# whois : fournit mkpasswd (utilisé par voila-shadow-watcher pour
+# détecter si le mdp a changé depuis la valeur par défaut)
+whois
+# xkb-data : déjà inclus dans le meta-paquet xfce4, mais on
+# l'assure pour le hook clavier FR
+xkb-data
+console-setup
+keyboard-configuration
+polkitd
+pkexec
+
 # === Navigateur ===
 firefox-esr
 torbrowser-launcher

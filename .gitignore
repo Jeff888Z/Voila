@@ -11,3 +11,6 @@ config-bullseye/
 config-buster/
 config-stretch/
 *.bak
+live-config_*.deb
+*.qcow2
+.tmp/

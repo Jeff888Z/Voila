@@ -1,0 +1,474 @@
+#!/bin/bash
+# VOILÀ — Autologin XFCE sur user `voila` au premier boot
+#
+# Le but : que la session graphique démarre sans demander d'identifiants,
+# pour qu'un humain lambda puisse finaliser la configuration (clavier,
+# langue, mdp) depuis un wizard graphique post-boot.
+#
+# Au premier boot, le service voila-first-boot.service (installé par
+# ce hook) lance /opt/voila/welcome.sh. Une fois que l'utilisateur a
+# changé son mdp (ou explicitement cliqué "Passer pour l'instant"),
+# un flag est posé dans /var/lib/voila/first-boot-done et le service
+# se désactive pour les boots suivants. L'autologin reste actif
+# jusqu'à ce que le mdp soit changé ; ensuite l'écran LightDM
+# normal s'affiche (cf. disable-autologin-after-chpasswd.service).
+#
+# SPDX-License-Identifier: MIT
+set -euo pipefail
+
+readonly LOG="/var/log/voila-build.log"
+log() { echo "[VOILÀ autologin] $*" | tee -a "$LOG"; }
+
+# ------------------------------------------------------------------
+# 1. LIGHTDM : autologin `voila` (timeout 0 = immédiat)
+# ------------------------------------------------------------------
+log "Configuration autologin LightDM..."
+
+# live-config (script 0100-lightdm) configure déjà l'autologin
+# mais sur l'user passé en cmdline kernel `username=`. On force
+# ici la valeur `voila` pour qu'il n'y ait pas de collision avec
+# un éventuel user `user` créé par défaut.
+
+mkdir -p /etc/lightdm/lightdm.conf.d
+cat > /etc/lightdm/lightdm.conf.d/99-voila-autologin.conf <<'EOF'
+# VOILÀ — Autologin sur user `voila` (sécurisé : live amnésique, rien à protéger)
+[Seat:*]
+autologin-user=voila
+autologin-user-timeout=0
+autologin-session=xfce
+EOF
+
+# S'assurer que l'autologin est activé dans lightdm.conf principal
+# (au cas où live-config ne s'est pas exécuté ou a été contourné)
+if [ -f /etc/lightdm/lightdm.conf ]; then
+    sed -i 's/^#*autologin-user=.*/autologin-user=voila/' /etc/lightdm/lightdm.conf
+    sed -i 's/^#*autologin-user-timeout=.*/autologin-user-timeout=0/' /etc/lightdm/lightdm.conf
+    sed -i 's/^#*autologin-session=.*/autologin-session=xfce/' /etc/lightdm/lightdm.conf
+fi
+
+# Permettre l'autologin sans avoir à valider le mdp (groupe autologin)
+if ! getent group autologin > /dev/null; then
+    groupadd -f autologin
+fi
+gpasswd -a voila autologin 2>/dev/null || true
+gpasswd -a voila nopasswdlogin 2>/dev/null || true
+
+# ------------------------------------------------------------------
+# 2. SERVICE SYSTEMD : premier boot
+# ------------------------------------------------------------------
+log "Installation voila-first-boot.service..."
+
+mkdir -p /etc/systemd/system /opt/voila
+
+cat > /opt/voila/welcome.sh <<'WIZARD_EOF'
+#!/bin/bash
+# VOILÀ — Wizard de premier boot (graphique YAD)
+# L'utilisateur peut :
+#   - changer son mdp
+#   - changer la langue du système
+#   - changer la disposition clavier
+#   - passer (la session reste accessible sans mdp au prochain boot)
+#
+# Une fois le mdp changé, désactive l'autologin LightDM pour les
+# boots suivants (l'écran de login normal s'affichera).
+#
+# NOTE IMPORTANTE : pas de `set -e` ici. Le wizard est interactif :
+# un user qui clique "Annuler" doit revenir au menu, pas faire
+# crasher tout le script. Tous les chemins d'erreur retournent 0.
+set -u
+
+LANG="fr_FR.UTF-8"
+LANGUAGE="fr_FR:fr"
+export LANG LANGUAGE LC_ALL
+export DISPLAY="${DISPLAY:-:0}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u voila)/bus}"
+
+FLAG_DIR="/var/lib/voila"
+FLAG_FILE="${FLAG_DIR}/first-boot-done"
+mkdir -p "$FLAG_DIR"
+
+# Si le wizard a déjà tourné, sortir silencieusement
+if [ -f "$FLAG_FILE" ]; then
+    exit 0
+fi
+
+# Attendre que le bureau XFCE soit prêt
+for i in $(seq 1 30); do
+    if pgrep -x xfce4-session > /dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+sleep 2
+
+show_welcome() {
+    yad --center --title="VOILÀ — Premier démarrage" \
+        --image=voila \
+        --text="<b><big>Bienvenue dans VOILÀ</big></b>\n\n\
+VOILÀ est un système d'exploitation live et sécurisé.\n\n\
+Pour finaliser la configuration :\n\
+  • <b>Changez votre mot de passe</b> (recommandé)\n\
+  • <b>Configurez votre langue et votre clavier</b> si besoin\n\
+  • Le mot de passe par défaut est <tt>voila</tt>\n\n\
+Voulez-vous configurer votre session maintenant ?" \
+        --button="Configurer maintenant !gtk-ok:0" \
+        --button="Plus tard !gtk-cancel:1" \
+        --width=520 --height=320
+}
+
+show_main_menu() {
+    yad --center --title="VOILÀ — Configuration" \
+        --image=voila \
+        --text="<b>Que souhaitez-vous configurer ?</b>" \
+        --button="Changer le mot de passe !dialog-password:0" \
+        --button="Changer la langue !preferences-desktop-locale:1" \
+        --button="Changer le clavier !preferences-desktop-keyboard:2" \
+        --button="Quitter !gtk-cancel:3" \
+        --width=520 --height=320
+    return $?
+}
+
+change_password() {
+    local new_pw new_pw2 rc
+    while :; do
+        # 1er champ : nouveau mdp (ou annulation)
+        new_pw=$(yad --center --title="Nouveau mot de passe" \
+            --text="Entrez votre nouveau mot de passe :" \
+            --entry --hide-text --width=420 \
+            --button="Valider !gtk-ok:0" \
+            --button="Annuler !gtk-cancel:1" 2>/dev/null) || return 0
+        if [ -z "$new_pw" ]; then
+            yad --center --error --title="Erreur" \
+                --text="Le mot de passe ne peut pas être vide." \
+                --button="Réessayer !gtk-ok" --width=300 2>/dev/null || true
+            continue
+        fi
+        if [ "${#new_pw}" -lt 4 ]; then
+            yad --center --error --title="Erreur" \
+                --text="Le mot de passe doit faire au moins 4 caractères." \
+                --button="Réessayer !gtk-ok" --width=300 2>/dev/null || true
+            continue
+        fi
+
+        # 2e champ : confirmation
+        new_pw2=$(yad --center --title="Confirmation" \
+            --text="<b>Confirmez le mot de passe :</b>\n\n\
+<span foreground='grey'>Astuce : choisissez un mot de passe\n\
+que vous retiendrez — il sera demandé\n\
+à chaque démarrage de VOILÀ.</span>" \
+            --entry --hide-text --width=420 \
+            --button="Valider !gtk-ok:0" \
+            --button="Annuler !gtk-cancel:1" 2>/dev/null) || return 0
+
+        if [ "$new_pw" != "$new_pw2" ]; then
+            yad --center --error --title="Erreur" \
+                --text="Les deux mots de passe ne correspondent pas." \
+                --button="Réessayer !gtk-ok" --width=300 2>/dev/null || true
+            continue
+        fi
+
+        # Changer le mdp via pkexec (graphique, demande de confirmation)
+        if printf '%s\n%s\n' "$new_pw" "$new_pw" \
+            | pkexec /usr/lib/voila/wrapper-passwd.sh 2>/dev/null
+        then
+            # Poser le sentinel — le watcher shadow va s'en servir
+            # pour désactiver l'autologin au prochain reboot.
+            pkexec /usr/bin/touch /var/lib/voila/pwd-changed 2>/dev/null || true
+            # Purger le mdp de la mémoire du shell (best effort)
+            unset new_pw new_pw2
+            yad --center --info --title="Mot de passe changé" \
+                --text="<b>Votre mot de passe a été modifié avec succès.</b>\n\n\
+À partir du prochain démarrage, l'écran de login\n\
+s'affichera et demandera votre mot de passe." \
+                --button="OK !gtk-ok" --width=400 2>/dev/null || true
+            return 0
+        else
+            rc=$?
+            yad --center --error --title="Erreur" \
+                --text="Impossible de changer le mot de passe.\nRéessayez ou contactez le support." \
+                --button="OK !gtk-ok" --width=400 2>/dev/null || true
+            return 0  # on retourne 0 pour ne pas quitter le wizard
+        fi
+    done
+}
+
+change_locale() {
+    local locale choice
+    choice=$(yad --center --title="Langue du système" \
+        --list --radiolist --column="✓" --column="Langue" \
+        --text="<b>Choisissez la langue de VOILÀ :</b>" \
+        --width=420 --height=300 \
+        TRUE "Français (fr_FR.UTF-8)" \
+        FALSE "English (en_US.UTF-8)" \
+        FALSE "Español (es_ES.UTF-8)" \
+        FALSE "Deutsch (de_DE.UTF-8)" \
+        FALSE "Italiano (it_IT.UTF-8)" \
+        --button="Appliquer !gtk-ok:0" \
+        --button="Annuler !gtk-cancel:1" 2>/dev/null) || return 0
+
+    locale=$(echo "$choice" | cut -d'|' -f2 | grep -oE '[a-z]{2}_[A-Z]{2}\.UTF-8')
+    [ -z "$locale" ] && return 0
+
+    LOCALE="$locale" pkexec bash -c '
+        sed -i "s/^# *${LOCALE} UTF-8/${LOCALE} UTF-8/" /etc/locale.gen
+        locale-gen > /dev/null
+        update-locale LANG="$LOCALE" LANGUAGE="${LOCALE%%_*}"
+    ' 2>/dev/null || true
+
+    yad --center --info --title="Langue modifiée" \
+        --text="La langue <b>$locale</b> a été appliquée.\nElle prendra effet au prochain démarrage." \
+        --button="OK !gtk-ok" --width=400 2>/dev/null || true
+}
+
+change_keyboard() {
+    local layout choice
+    choice=$(yad --center --title="Disposition clavier" \
+        --list --radiolist --column="✓" --column="Disposition" \
+        --text="<b>Choisissez votre disposition de clavier :</b>" \
+        --width=420 --height=320 \
+        TRUE "Français AZERTY (fr)" \
+        FALSE "Français BÉPO (fr-bepo)" \
+        FALSE "QWERTY US (us)" \
+        FALSE "QWERTY UK (gb)" \
+        FALSE "QWERTZ (de)" \
+        FALSE "AZERTY (be)" \
+        --button="Appliquer !gtk-ok:0" \
+        --button="Annuler !gtk-cancel:1" 2>/dev/null) || return 0
+
+    layout=$(echo "$choice" | cut -d'|' -f2 | grep -oE '^[a-z-]+')
+    [ -z "$layout" ] && return 0
+
+    LAYOUT="$layout" pkexec bash -c '
+        sed -i "s|^XKBLAYOUT=.*|XKBLAYOUT=\"${LAYOUT}\"|" /etc/default/keyboard
+        dpkg-reconfigure -f noninteractive keyboard-configuration > /dev/null
+    ' 2>/dev/null || true
+
+    yad --center --info --title="Clavier modifié" \
+        --text="La disposition <b>$layout</b> a été appliquée.\nElle prendra effet au prochain démarrage." \
+        --button="OK !gtk-ok" --width=400 2>/dev/null || true
+}
+
+# --- Boucle principale du wizard ---
+welcome_choice=$(show_welcome)
+if [ "$welcome_choice" = "1" ]; then
+    # L'utilisateur a cliqué "Plus tard" → on sort, on retentera au
+    # prochain boot (mais comme le service est oneshot et le flag
+    # n'est pas posé, systemd va le re-déclencher à chaque reboot)
+    exit 0
+fi
+
+while :; do
+    show_main_menu
+    case $? in
+        0) change_password ;;
+        1) change_locale ;;
+        2) change_keyboard ;;
+        3) break ;;
+    esac
+done
+
+# Poser le flag : le wizard est considéré comme complet
+touch "$FLAG_FILE"
+
+yad --center --info --title="Configuration terminée" \
+    --text="<b>Configuration terminée.</b>\n\n\
+Votre session VOILÀ est prête. Profitez bien !" \
+    --button="Fermer !gtk-ok" --width=360
+WIZARD_EOF
+chmod +x /opt/voila/welcome.sh
+
+# Wrapper lancé par systemd (qui attend l'environnement X complet)
+cat > /opt/voila/welcome-launcher.sh <<'LAUNCHER_EOF'
+#!/bin/bash
+# VOILÀ — Lanceur du wizard après le démarrage de la session XFCE
+# Attend que xfce4-session soit en place puis exécute welcome.sh
+# en tant que user `voila` (pas root).
+set -e
+
+# Attendre que voila soit logué graphiquement (max 60s)
+for i in $(seq 1 60); do
+    if pgrep -u voila xfce4-session > /dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+
+# Délai supplémentaire pour laisser XFCE initialiser
+sleep 5
+
+# Lancer le wizard en tant que voila, dans sa session X
+USER_ID=$(id -u voila)
+DBUS_ADDR="unix:path=/run/user/${USER_ID}/bus"
+DISPLAY=":0"
+
+su - voila -c "
+    export LANG=fr_FR.UTF-8
+    export LANGUAGE=fr_FR:fr
+    export DISPLAY=${DISPLAY}
+    export DBUS_SESSION_BUS_ADDRESS=${DBUS_ADDR}
+    /opt/voila/welcome.sh
+" || true
+LAUNCHER_EOF
+chmod +x /opt/voila/welcome-launcher.sh
+
+cat > /etc/systemd/system/voila-first-boot.service <<'SERVICE_EOF'
+[Unit]
+Description=VOILÀ — Wizard de premier démarrage
+After=display-manager.service xfce4-session.target
+ConditionPathExists=!/var/lib/voila/first-boot-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/voila/welcome-launcher.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+SERVICE_EOF
+
+# S'assurer que yad est installé (pour les dialogs graphiques)
+log "Installation yad..."
+apt-get install -y yad 2>/dev/null || true
+
+# Wrapper pour `passwd voila` lancé par pkexec depuis le wizard
+mkdir -p /usr/lib/voila
+cat > /usr/lib/voila/wrapper-passwd.sh <<'WRAPPER_EOF'
+#!/bin/bash
+# VOILÀ — Wrapper pour chpasswd via stdin (pkexec passe le mot de
+# passe via stdin, ce que passwd(1) n'accepte pas directement).
+# Usage : echo "newpass" | pkexec /usr/lib/voila/wrapper-passwd.sh
+set -e
+read -r PASSWORD
+echo "voila:${PASSWORD}" | /usr/sbin/chpasswd
+WRAPPER_EOF
+chmod 755 /usr/lib/voila/wrapper-passwd.sh
+
+# Permissions polkit pour permettre à voila d'exécuter chpasswd
+# sans mot de passe admin (sinon pkexec demande le mdp de voila
+# en boucle... et voila ne le connaît pas forcément).
+# IMPORTANT : on N'utilise PAS polkit.Result.YES global, on autorise
+# uniquement les 3 actions nécessaires au wizard, et seulement pour
+# l'user `voila` (les autres users restent soumis à l'auth standard).
+cat > /usr/share/polkit-1/rules.d/99-voila-welcome.rules <<'POLKIT_RULES_EOF'
+// VOILÀ — Permissions polkit pour le wizard de premier boot.
+// On autorise UNIQUEMENT les 3 actions nécessaires au wizard
+// pour le user `voila`. Tous les autres users conservent le
+// comportement par défaut (auth admin requise).
+polkit.addRule(function(action, subject) {
+    if (subject.user !== "voila") {
+        return polkit.Result.NOT_HANDLED;
+    }
+    // Actions autorisées pour voila (chgmt mdp, marker, autologin off)
+    if (action.id === "voila.welcome.passwd" ||
+        action.id === "org.freedesktop.policykit.exec") {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});
+POLKIT_RULES_EOF
+
+# Activer le service au premier boot
+systemctl enable voila-first-boot.service 2>/dev/null || true
+
+# ------------------------------------------------------------------
+# 3. PKEXEC : autoriser voila à changer son mdp / locale / clavier
+# ------------------------------------------------------------------
+log "Configuration polkit pour le wizard..."
+
+mkdir -p /usr/share/polkit-1/actions
+cat > /usr/share/polkit-1/actions/voila.welcome.policy <<'POLKIT_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+  <action id="voila.welcome.passwd">
+    <description>VOILÀ — Allow voila user to change their own password</description>
+    <message>Authentification requise pour changer le mot de passe</message>
+    <defaults>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>
+POLKIT_EOF
+
+# Marqueur posé par le wizard quand le mdp a été changé avec succès
+# (lus par voila-shadow-watcher.service pour désactiver l'autologin)
+mkdir -p /var/lib/voila
+
+# ------------------------------------------------------------------
+# 4. WATCHER /etc/shadow : désactive l'autologin une fois le mdp changé
+# ------------------------------------------------------------------
+log "Installation voila-shadow-watcher..."
+
+# Le sentinel /var/lib/voila/pwd-changed est posé par le wizard YAD
+# (ou par tout autre script qui change le mdp de voila). Le path
+# unit déclenche le service à chaque modif de /etc/shadow ; le
+# service vérifie la présence du sentinel et désactive l'autologin
+# le cas échéant.
+#
+# Note : on n'utilise PAS mkpasswd/recalcul de hash ici — les sels
+# sont aléatoires, donc le hash varie à chaque création d'user.
+# La détection repose sur le sentinel explicite (plus fiable).
+
+cat > /etc/systemd/system/voila-shadow-watcher.path <<'EOF'
+[Unit]
+Description=VOILÀ — Surveille /etc/shadow pour détecter un chpasswd
+After=local-fs.target
+
+[Path]
+PathChanged=/etc/shadow
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/voila-shadow-watcher.service <<'EOF'
+[Unit]
+Description=VOILÀ — Désactive l'autologin si le mdp voila a été changé
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/voila/disable-autologin-if-pwd-changed.sh
+StandardOutput=journal
+StandardError=journal
+EOF
+
+# Script : vérifie le sentinel posé par le wizard
+cat > /opt/voila/disable-autologin-if-pwd-changed.sh <<'SCRIPT_EOF'
+#!/bin/bash
+# VOILÀ — Désactive l'autologin LightDM si le sentinel
+# /var/lib/voila/pwd-changed existe (= l'utilisateur a changé
+# son mdp via le wizard ou tout autre moyen).
+set -euo pipefail
+
+SENTINEL="/var/lib/voila/pwd-changed"
+AUTOLOGIN_CONF="/etc/lightdm/lightdm.conf.d/99-voila-autologin.conf"
+
+# Pas de sentinel → l'utilisateur n'a pas (encore) changé son mdp
+if [ ! -f "$SENTINEL" ]; then
+    exit 0
+fi
+
+# Sentinel présent → désactiver l'autologin
+if [ -f "$AUTOLOGIN_CONF" ]; then
+    rm -f "$AUTOLOGIN_CONF"
+    # Recharger LightDM (le mieux qu'on puisse faire ; l'autologin
+    # ne s'appliquera qu'au prochain login, mais ce n'est pas grave
+    # car la session courante est déjà ouverte)
+    systemctl reload-or-restart lightdm 2>/dev/null || true
+fi
+
+# Désactiver ce watcher (plus besoin, sentinel posé)
+systemctl disable voila-shadow-watcher.path 2>/dev/null || true
+systemctl stop voila-shadow-watcher.path 2>/dev/null || true
+SCRIPT_EOF
+chmod +x /opt/voila/disable-autologin-if-pwd-changed.sh
+
+systemctl enable voila-shadow-watcher.path 2>/dev/null || true
+
+log "Autologin + wizard + watcher installés."

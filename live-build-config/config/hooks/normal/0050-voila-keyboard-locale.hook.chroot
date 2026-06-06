@@ -1,0 +1,95 @@
+#!/bin/bash
+# VOILÀ — Configuration clavier + locale par défaut
+# Appliqué pendant le chroot du build. Permet de booter directement
+# en AZERTY (sinon live-config reste en en_US) et d'avoir le français
+# comme langue de l'interface (sinon XFCE reste en anglais).
+#
+# NOTE : l'utilisateur peut toujours changer ces paramètres depuis
+# le wizard /opt/voila/welcome.sh au premier boot.
+# SPDX-License-Identifier: MIT
+set -euo pipefail
+
+readonly LOG="/var/log/voila-build.log"
+log() { echo "[VOILÀ keyboard+locale] $*" | tee -a "$LOG"; }
+
+# ------------------------------------------------------------------
+# 1. CLAVIER : AZERTY français
+# ------------------------------------------------------------------
+log "Configuration clavier AZERTY (fr)..."
+
+cat > /etc/default/keyboard <<'EOF'
+# VOILÀ — Configuration clavier par défaut
+XKBMODEL="pc105"
+XKBLAYOUT="fr"
+XKBVARIANT="azerty"
+XKBOPTIONS=""
+
+# Backward compatibility (consoledata, requis par console-setup)
+XKBKEYMAP="fr"
+EOF
+
+# Reconfigurer console-setup et keyboard-configuration de manière
+# non-interactive (dpkg-reconfigure demande un frontend debconf
+# complet, on pose les seeds via debconf-set-selections à la place).
+debconf-set-selections <<'EOF'
+keyboard-configuration keyboard-configuration/layoutcode string fr
+keyboard-configuration keyboard-configuration/variant select French (AZERTY)
+keyboard-configuration keyboard-configuration/model select Generic 105-key PC
+keyboard-configuration keyboard-configuration/xkb-keymap select fr
+keyboard-configuration keyboard-configuration/optionscode string 
+keyboard-configuration keyboard-configuration/unsupported_config_keys boolean true
+keyboard-configuration keyboard-configuration/unsupported_options boolean true
+keyboard-configuration keyboard-configuration/unsupported_layout boolean true
+keyboard-configuration keyboard-configuration/altgr select The default for the keyboard layout
+keyboard-configuration keyboard-configuration/compose select No compose key
+keyboard-configuration keyboard-configuration/ctrl_alt_bksp boolean false
+keyboard-configuration keyboard-configuration/switch select No temporary switch
+EOF
+
+# console-setup : locale TTY en français
+cat > /etc/default/console-setup <<'EOF'
+# VOILÀ — Console TTY
+CHARMAP="UTF-8"
+CODESET="Lat15"
+FONTFACE="Fixed"
+FONTSIZE="8x16"
+EOF
+
+# ------------------------------------------------------------------
+# 2. LOCALE : français par défaut
+# ------------------------------------------------------------------
+log "Génération locales fr_FR.UTF-8..."
+
+# S'assurer que fr_FR.UTF-8 est dans /etc/locale.gen
+sed -i 's/^# *fr_FR.UTF-8 UTF-8/fr_FR.UTF-8 UTF-8/' /etc/locale.gen
+# Désactiver en_US.UTF-8 (qui était l'ancien défaut live-config)
+sed -i 's/^en_US.UTF-8 UTF-8/# en_US.UTF-8 UTF-8/' /etc/locale.gen
+
+locale-gen 2>/dev/null || true
+
+# Locale système par défaut
+cat > /etc/default/locale <<'EOF'
+# VOILÀ — Locale par défaut
+LANG="fr_FR.UTF-8"
+LANGUAGE="fr_FR:fr"
+LC_ALL="fr_FR.UTF-8"
+EOF
+
+# Locale.conf pour systemd (utilisé par xfce4-session pour la langue UI)
+mkdir -p /etc/X11/Xsession.d
+cat > /etc/X11/Xsession.d/95voila-locale <<'EOF'
+# VOILÀ — Force la locale FR pour les sessions X
+export LANG="fr_FR.UTF-8"
+export LANGUAGE="fr_FR:fr"
+export LC_ALL="fr_FR.UTF-8"
+EOF
+chmod +x /etc/X11/Xsession.d/95voila-locale
+
+# ------------------------------------------------------------------
+# 3. FUSEAU HORAIRE : Paris par défaut
+# ------------------------------------------------------------------
+log "Fuseau horaire Europe/Paris..."
+ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
+echo "Europe/Paris" > /etc/timezone
+
+log "Clavier + locale configurés."

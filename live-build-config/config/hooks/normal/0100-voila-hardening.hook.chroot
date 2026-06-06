@@ -175,13 +175,17 @@ chmod +x /opt/voila/panic.sh
 # ------------------------------------------------------------------
 # 10. UTILISATEUR voila (sans sudo par défaut)
 # ------------------------------------------------------------------
+# Note : on NE met PAS `passwd -e voila` ici (cause une boucle d'auth
+# infinie avec lightdm-gtk-greeter : PAM voit sp_lstchg=0 et refuse
+# d'ouvrir la session tant qu'aucun dialog n'a validé un nouveau mdp ;
+# or le greeter n'en fournit pas). Le mdp par défaut reste `voila` et
+# l'user est invité à le changer via le wizard /opt/voila/welcome.sh
+# au premier boot (cf. hook 0150-voila-autologin.hook.chroot).
 log "Création utilisateur voila..."
 
 if ! id voila &>/dev/null; then
     useradd -m -s /bin/bash -G audio,video,netdev,bluetooth voila
     echo "voila:voila" | chpasswd
-    # Force changement mot de passe au premier login
-    passwd -e voila
 else
     log "Utilisateur voila existe déjà (créé par live-boot), on ne le (re)crée pas."
 fi

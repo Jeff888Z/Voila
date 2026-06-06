@@ -137,12 +137,35 @@ sudo eject /dev/sdc
 
 ## 🔐 Étape 6 : Premier login
 
-Une fois sur le bureau XFCE :
+Une fois sur le bureau XFCE, l'OS **démarre en autologin** sur le user
+`voila` (pas d'écran d'auth au tout premier boot — c'est voulu, ça
+permet de finir la configuration avant de poser un mdp).
 
-- **Utilisateur** : `voila`
-- **Mot de passe par défaut** : `voila` (changement **obligatoire** au premier login)
-- Connexion WiFi via l'icône réseau en haut à droite
-- **Tor** démarre tout seul
+Un **wizard graphique** se lance automatiquement et propose :
+- 🔑 Changer le mot de passe (recommandé)
+- 🌐 Changer la langue du système
+- ⌨️  Changer la disposition clavier
+- ❌ Quitter sans rien faire
+
+> 💡 **Note** : le mdp par défaut est `voila`. Il est **recommandé** de
+> le changer (surtout si tu te sers de la clé sur une machine partagée),
+> mais **pas obligatoire** : sur un live amnésique, aucune donnée n'est
+> persistée sur le support, donc il n'y a rien à protéger par un mdp
+> local. Le mdp ne sert qu'à fermer la session à distance si tu
+> t'absentes de la machine.
+
+### Une fois le mdp changé
+
+À partir du **démarrage suivant**, l'écran de login LightDM s'affichera
+normalement et demandera `voila` + le nouveau mdp. Plus d'autologin.
+
+### Pour relancer le wizard manuellement
+
+```bash
+/opt/voila/welcome.sh
+```
+
+(utile si tu veux reconfigurer après coup)
 
 ### Vérifier que Tor fonctionne
 

@@ -172,10 +172,20 @@ Boot (BIOS/UEFI)
        │
        ├── Ollama (si activé) → charge llama3.2:3b
        │
-       └── Login auto user 'voila' → session Xfce minimal
-            - Tor Browser en raccourci bureau
-            - Element/Signal/Briar en dock
-            - "Documentation VOILÀ" en raccourci
+       ├── LightDM démarre → AUTOLOGIN sur user 'voila'
+       │     (via /etc/lightdm/lightdm.conf.d/99-voila-autologin.conf
+       │      posé par le hook 0150 ; annulé au 2e boot si le sentinel
+       │      /var/lib/voila/pwd-changed est présent)
+       │
+       └── XFCE démarre → service voila-first-boot.service lance
+            le wizard YAD /opt/voila/welcome.sh qui propose :
+              - changer le mdp (recommandé, mais pas obligatoire)
+              - changer la langue du système
+              - changer la disposition clavier
+            Une fois le mdp changé, le sentinel pwd-changed est posé
+            et voila-shadow-watcher.path désactive l'autologin pour
+            les boots suivants. Au prochain boot, l'écran de login
+            LightDM standard s'affiche.
 ```
 
 ### 4.3 Sécurité runtime
