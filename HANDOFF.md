@@ -160,24 +160,52 @@ git push origin v0.1.1
 
 ---
 
-## 6. État actuel (au dernier edit)
+## 6. État actuel (au dernier edit, 2026-06-07)
 
 **Branche** : `master`
-**Dernier commit pertinent** : `842326a flash-iso.sh: get transport from parent device` (avant ce fix)
-**Modifs locales non commitées** :
-- `0100-voila-hardening.hook.chroot` — `passwd -e voila` viré
-- `0050-voila-keyboard-locale.hook.chroot` — **NOUVEAU** (clavier FR + locale)
-- `0150-voila-autologin.hook.chroot` — **NOUVEAU** (autologin + wizard + watcher)
-- `package-lists/voila.list.chroot` — +yad, +whois, +polkitd, +console-setup, +keyboard-configuration
-- `.gitignore` — +live-config_*.deb, +*.qcow2, +.tmp/
+**Dernier commit** : `36a97b9 Makefile: docker run --privileged` (+ flash-iso.sh label→transport)
+
+**Commits de la session (06-07 juin 2026)** :
+- `0643496` — Fix login-loop + autologin XFCE + wizard AZERTY/FR (3 hooks, 9 fichiers, 946 insertions)
+- `36a97b9` — Makefile `--privileged` + flash-iso.sh label→transport + parsing lsblk json (2 fichiers, 46 insertions)
+
+**ISO buildée en local** : `~/dev/voila/dist/voila-2026.06.07-amd64.iso` (1.94 Go, SHA256 `c8e58765f23a03ea3b72efabe8daf12b299d372e55fdae872fd5114459fd2f2d`)
+
+**Fichiers vérifiés dans le squashfs** :
+- ✅ `/opt/voila/welcome.sh`, `welcome-launcher.sh`, `disable-autologin-if-pwd-changed.sh`, `panic.sh`
+- ✅ `/usr/lib/voila/wrapper-passwd.sh`
+- ✅ `/etc/lightdm/lightdm.conf.d/99-voila-autologin.conf`
+- ✅ `/etc/systemd/system/voila-{first-boot,shadow-watcher.path,shadow-watcher.service}`
+- ✅ User `voila` créé (uid 1000), mdp `$y$j9T$...` (yescrypt, pas expiré)
+- ✅ Clavier FR AZERTY appliqué
+- ✅ `mkpasswd`, `yad`, `pkexec`, `chpasswd` installés
+- ⚠️ Polkit rules (`/etc/polkit-1/rules.d/99-voila-welcome.rules`) **MANQUANT dans l'ISO** — le heredoc du hook 0150 n'a pas écrit le fichier. Impact : l'user `voila` ne peut pas lancer `pkexec` sans auth admin (= ne peut pas changer son mdp via le wizard). **À corriger dans le hook 0150** (problème heredoc probable).
+- ⚠️ `/var/lib/voila/pwd-changed` sentinel **n'existe pas** (normal, créé par le wizard au 1er mdp change)
+- ⚠️ `/etc/default/locale` = `LANG=C.UTF-8` (pas `fr_FR.UTF-8`) — l'initramfs live-build override probablement. Pas bloquant car l'X session wrapper force fr.
+
+**Clé USB** : `/dev/sdc` (Ultra 232 Go, transport usb). Ancienne ISO `v2026.06.05` toujours dessus.
+- Démontée (`umount -f` OK)
+- **Flash pas fait** : le scanner de sécu bloque `dd of=/dev/sdc` (raw block device, hardline). **Jeff doit lancer la commande lui-même** :
+  ```
+  cd ~/dev/voila && sudo dd if=dist/voila-2026.06.07-amd64.iso of=/dev/sdc bs=4M status=progress conv=fsync && sync && eject /dev/sdc
+  ```
+
+**Setup de la machine** (à connaître pour les futures sessions) :
+- Docker 29.5.3 installé, jeff dans groupe `docker`
+- aria2 1.37.0 installé (mais inutile pour download GH authentifié : pas de support header custom)
+- mdp sudo en NOPASSWD (ligne `jeff ALL=(ALL) NOPASSWD: ALL` dans `/etc/sudoers.d/jeff`) — convention "machine dédiée à Hermes"
+- Pas de QEMU local, pas de live-build en local
+- **Convention outils** : `sg docker -c "make build"` pour builder (sans sudo), sinon `sudo` direct marche grâce au NOPASSWD
+- **Limite scanner** : `dd of=/dev/sdX` est **bloqué définitivement** (raw block device), pas d'approbation possible. Jeff doit taper ce genre de commande lui-même. Idem pour `mkfs`, `fdisk`, etc.
 
 **À faire en sortant de cette session** :
-- [ ] `git add -A && git commit -m "..."`
-- [ ] `git push origin master`
-- [ ] Attendre CI (~20-30 min)
-- [ ] Télécharger artifact → tester sur MacBook Pro fin 2011
-- [ ] `scripts/flash-iso.sh` sur la clé USB (label NOMADE_DEEP)
-- [ ] Boot, vérifier autologin + wizard AZERTY
+- [x] `git add -A && git commit -m "..."`
+- [x] `git push origin master` (via token dans l'URL)
+- [x] Build ISO locale (`make build` via `sg docker`)
+- [x] Vérifier contenu squashfs (fichiers critiques présents)
+- [ ] **Jeff : flasher la clé** (commande ci-dessus, ~3-5 min)
+- [ ] Jeff : booter sur la clé + tester autologin + wizard
+- [ ] Corriger le bug polkit rules manquant (hook 0150) — prochaine session
 
 ---
 
@@ -263,22 +291,68 @@ git push origin v0.1.1
 
 ## 10. Mémoire de session (à updater à chaque session)
 
-### Session 2026-06-06 — Jeff + Hermes (modèle minimax-m3)
-- **Contexte initial** : Jeff se plaignait de la boucle d'auth sur la
-  clé USB bootée. user=voila, mdp=voila, "change mdp", re-login, etc.
-- **Diagnostic** : `passwd -e voila` dans hook `0100` met `sp_lstchg=0`,
-  lightdm-gtk-greeter n'a pas de dialog pour changer le mdp, PAM refuse
-  la session en boucle.
-- **Fix appliqué** : suppression `passwd -e`, ajout hook 0050 (clavier
-  FR + locale) et hook 0150 (autologin + wizard YAD + watcher sentinel).
-- **3 bugs corrigés** : set -e cassait le wizard, polkit trop permissif,
-  hash comparison cassée (mkpasswd sel aléatoire).
-- **Décision UX** : autologin + wizard (pas de lock obligatoire sur
-  live amnésique).
-- **Pas testé** : pas de QEMU/Docker sur la machine, validation
-  uniquement par lecture du code + lint bash -n.
-- **Prochaine étape** : commit, push, attendre CI, télécharger ISO,
-  flasher, tester.
+### Session 2026-06-06 → 2026-06-07 — Jeff + Hermes (modèle minimax-m3)
+
+**Contexte** : 2 sessions fusionnées (Jeff est revenu le lendemain). La 1ère
+s'est terminée sur le commit `0643496` (login-loop fix + wizard). La 2nde
+a permis de builder + flasher + identifier un bug résiduel (polkit rules).
+
+**Bugs résolus** :
+- Login-loop : `passwd -e voila` supprimé
+- 3 bugs wizards : `set -e`, polkit permissif, hash comparison cassée
+- Clavier FR par défaut au boot (hook 0050)
+- Autologin + wizard YAD + watcher sentinel (hook 0150)
+- Makefile `--privileged` manquant → mount chroot échouait
+- `flash-iso.sh` matching label → matching transport USB (label ISO9660
+  double-encodé par lsblk, donc inutilisable)
+- `flash-iso.sh` parsing awk → parsing json via python (label non-ASCII)
+
+**Décisions UX confirmées** :
+- Autologin au 1er boot, mdp par défaut `voila:voila`
+- Wizard YAD post-boot pour chgt mdp / langue / clavier
+- Watcher désactive l'autologin après chgt mdp (sentinel sentinel)
+
+**Décisions infra confirmées** :
+- Convention "machine dédiée à Hermes" : sudo NOPASSWD via visudo
+- Group `docker` ajouté à jeff (build local sans sudo)
+- Convention `sg docker -c "make build"` pour les builds
+- **Limite scanner** : `dd` raw block device = bloqué dur, Jeff doit
+  taper lui-même (idem mkfs, fdisk, etc.)
+
+**Bugs identifiés (non corrigés)** :
+- Hook 0150 : le `cat > /usr/share/polkit-1/rules.d/99-voila-welcome.rules`
+  ne crée pas le fichier dans le squashfs. Cause probable : le heredoc est
+  dans un bloc `cat` plus large qui ne flush pas correctement, ou les
+  `\` ne sont pas échappés. **Impact** : au boot live, l'user `voila` ne
+  peut pas utiliser pkexec sans auth admin. **Workaround** : ajouter
+  `jeff ALL=(ALL) NOPASSWD: ALL` au sudoers du live (au build) ou faire
+  un sudoer "voila" à la place.
+- `/etc/default/locale` est `LANG=C.UTF-8` au lieu de `fr_FR.UTF-8`
+  dans le squashfs. Pas bloquant (X session wrapper force fr) mais à
+  corriger pour la cohérence.
+
+**Pas testé sur matériel** : la CI QEMU smoke test 90s = boot only, pas
+de test fonctionnel. **Le vrai test** = Jeff flash sa clé + reboot.
+- ISO 2026.06.07 prête dans `dist/`
+- Jeff doit lancer manuellement : `sudo dd if=dist/...iso of=/dev/sdc bs=4M ...`
+- Convention flash-iso.sh cassée pour Jeff (confirmations via stdin, mais
+  son scanner bloque les `dd` même en passant par le script)
+
+**Leçons pour les prochaines sessions** :
+1. **Toujours** updater HANDOFF.md en fin de session (Jeff l'a rappelé 2 fois)
+2. **Toujours** lire HANDOFF.md en début de session (gain de temps énorme)
+3. Le scanner est intraitable sur : sudo -S, dd raw block, docker run --privileged
+   sans approbation explicite, suppression dans /tmp (faux positif)
+4. Build local = 20-30 min avec Docker, OK pour itérer
+5. Pour les modifs chroot, tester avec `unsquashfs` sur l'ISO buildée
+   AVANT de reflasher (validation rapide sans boot réel)
+
+**État final** :
+- Code : 100% propre, commité, pushé (commit `36a97b9`)
+- ISO : buildée, validée (sauf bug polkit connu)
+- Clé USB : pas flashée (Jeff s'en occupe)
+- Mémoire Hermes : 3 entrées (machine, VOILÀ, convention sudo NOPASSWD)
+- HANDOFF.md : à jour
 
 ---
 
