@@ -15,7 +15,7 @@ help: ## Affiche cette aide
 build: ## Build l'ISO via Docker (recommandé)
 	@mkdir -p $(DIST)
 	docker build -t voila-builder docker/
-	docker run --rm \
+	docker run --rm --privileged \
 		-v "$(PWD)/$(DIST):/build/dist" \
 		-v "$(PWD)/live-build-config:/build/live-build-config" \
 		-v "$(PWD)/scripts:/build/scripts" \

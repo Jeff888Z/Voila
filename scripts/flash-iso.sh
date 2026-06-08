@@ -21,7 +21,11 @@
 set -euo pipefail
 
 readonly ISO_PATH="${1:?Usage: $0 <path-to-iso>}"
-readonly TARGET_LABEL="NOMADE_DEEP"
+# On matche sur le transport USB (exclure sata/nvme pour éviter de flasher
+# un disque système). Le label ISO 9660 contient des caractères non-ASCII
+# mal décodés par lsblk (double encodage UTF-8), donc inutilisable pour
+# identifier la clé de manière fiable. Le TRAN=usb est stable et sûr.
+readonly TARGET_TRANSPORT="usb"
 readonly ISO_MIN_SIZE_MB=400  # 700 Mo attendu pour un Debian Live minimal
 readonly ISO_MAX_SIZE_MB=2500 # Live complet avec cache apt embarqué peut atteindre 2 Go
 
@@ -85,48 +89,63 @@ fi
 
 # === 3. DÉTECTION DE LA CLÉ CIBLE ===
 hr
-info "Recherche de la clé '$TARGET_LABEL'..."
+info "Recherche de la clé USB (transport=$TARGET_TRANSPORT)..."
 
 # lsblk -n -o NAME,LABEL,SIZE,MODEL,TRAN
 # Note: NAME n'a PAS le préfixe /dev/ par défaut, on l'ajoute
 TARGET_DEV=""
-while IFS= read -r line; do
-    # Parser chaque ligne (skip header éventuel)
-    name=$(echo "$line" | awk '{print $1}')
-    label=$(echo "$line" | awk '{print $2}')
-    size=$(echo "$line" | awk '{print $3}')
-    model=$(echo "$line" | awk '{print $4}')
-    tran=$(echo "$line" | awk '{print $5}')
-
+TARGET_SIZE=""
+TARGET_MODEL=""
+# lsblk --json est plus robuste que le parsing colonne d'awk, qui casse
+# quand le label contient des caractères non-ASCII (ex: "VOILÀ" en iso9660).
+# On utilise un fichier temp pour éviter le subshell du pipe (qui masquerait
+# les assignations de variables au shell parent).
+TEMP_RESULT=$(lsblk -J -o NAME,LABEL,SIZE,MODEL,TRAN 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for dev in data.get('blockdevices', []):
+    tran = (dev.get('tran') or '').strip()
+    name = (dev.get('name') or '').strip()
+    if tran != 'usb':
+        continue
+    label = (dev.get('label') or '').strip()
+    size = (dev.get('size') or '').strip()
+    model = (dev.get('model') or '').strip()
+    print(f'{name}|{label}|{size}|{model}|{tran}')
+")
+while IFS='|' read -r name label size model tran; do
+    [ -z "$name" ] && continue
     # Filtrer uniquement les périphériques de type block (sd*, nvme*, mmc*)
-    # Note: lsblk affiche les enfants avec ├─ ou └─ en préfixe
     clean_name=$(echo "$name" | sed -E 's/^[├└─]+//')
     case "$clean_name" in
         /dev/sd*|/dev/nvme*|/dev/mmc*|sd*|nvme*|mmc*) :;;
         *) continue ;;
     esac
 
-    if [ "$label" = "$TARGET_LABEL" ]; then
-    # Le device parent (sans le numéro de partition)
-    # sdc1 → sdc, /dev/sdc1 → /dev/sdc
-    # nvme0n1p1 → nvme0n1, /dev/nvme0n1p1 → /dev/nvme0n1
     full_name="/dev/$clean_name"
     parent=$(echo "$full_name" | sed -E 's|/dev/(sd[a-z]+)[0-9]+|/dev/\1|; s|/dev/(nvme[0-9]+n[0-9]+)p[0-9]+|/dev/\1|')
     # Récupérer le transport du PARENT (pas de l'enfant qui est souvent vide)
     found_tran=$(lsblk -n -d -o TRAN "$parent" 2>/dev/null | head -1 | tr -d ' ')
+    if [ "$found_tran" != "$TARGET_TRANSPORT" ]; then
+        continue
+    fi
     echo "  Trouvé : $full_name ($label, $size, $model, transport=$found_tran) → parent=$parent"
     TARGET_DEV="$parent"
     TARGET_TRAN="$found_tran"
+    TARGET_SIZE="$size"
+    TARGET_MODEL="$model"
     break
-    fi
-done < <(lsblk -n -o NAME,LABEL,SIZE,MODEL,TRAN 2>/dev/null)
+done <<< "$TEMP_RESULT"
 
 if [ -z "$TARGET_DEV" ]; then
-    die "Aucune clé avec le label '$TARGET_LABEL' trouvée.
+    die "Aucune clé USB détectée.
 Étapes :
   1. Branche ta clé USB
-  2. Vérifie son label : lsblk -o NAME,LABEL,MOUNTPOINT
-  3. Si elle a pas ce label, rebranche-la (le label sera mis par mkfs après reformat)
+  2. Vérifie qu'elle apparaît : lsblk -o NAME,TRAN,SIZE,MODEL
+  3. La colonne TRAN doit indiquer 'usb' (pas 'sata' ni 'nvme')
   4. Relance ce script"
 fi
 
@@ -170,16 +189,19 @@ done
 hr
 echo "${BOLD}RÉCAPITULATIF${NC}"
 echo "  ISO source : $ISO_PATH (${ISO_SIZE_MB} Mo)"
-echo "  Cible      : $TARGET_DEV (label=$TARGET_LABEL, transport=$TRANSPORT)"
+echo "  Cible      : $TARGET_DEV (taille=$TARGET_SIZE, modèle=$TARGET_MODEL, transport=$TRANSPORT)"
 echo "  Action     : dd if=... of=$TARGET_DEV bs=4M (efface TOUT sur la clé)"
 echo ""
+# Confirmations : on lit depuis stdin (toujours), ce qui permet à la fois
+# le mode interactif (l'utilisateur tape) ET le mode scripté (pipe via printf).
+# En mode interactif, le shell bind le TTY à stdin automatiquement.
 echo "${RED}${BOLD}⚠  CECI EFFACE DÉFINITIVEMENT TOUTES LES DONNÉES SUR $TARGET_DEV ⚠${NC}"
 echo ""
 read -r -p "Tape 'OUI' (en majuscules) pour confirmer : " CONFIRM1
 [ "$CONFIRM1" = "OUI" ] || { info "Annulé par l'utilisateur"; exit 0; }
 
-read -r -p "Confirme une 2e fois en tapant le label exact '$TARGET_LABEL' : " CONFIRM2
-[ "$CONFIRM2" = "$TARGET_LABEL" ] || { info "Annulé (label incorrect)"; exit 0; }
+read -r -p "Confirme une 2e fois en tapant la taille exacte '$TARGET_SIZE' : " CONFIRM2
+[ "$CONFIRM2" = "$TARGET_SIZE" ] || { info "Annulé (taille incorrecte)"; exit 0; }
 
 # === 7. FLASH ===
 hr
